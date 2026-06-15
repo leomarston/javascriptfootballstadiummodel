@@ -26,9 +26,10 @@ export class PostFX {
     if (QUALITY.bloom) {
       this.bloom = new UnrealBloomPass(
         new THREE.Vector2(size.x, size.y),
-        0.55, // strength
+        0.45, // strength
         0.7, // radius
-        0.82 // threshold — only bright (emissive) pixels bloom
+        0.95 // threshold — high, so only true emissives (lights/LEDs) bloom,
+        //                   never the matte painted lines
       );
       this.composer.addPass(this.bloom);
     }
@@ -42,8 +43,8 @@ export class PostFX {
 
   setNight(isNight) {
     if (this.bloom) {
-      this.bloom.strength = isNight ? 0.95 : 0.5;
-      this.bloom.threshold = isNight ? 0.62 : 0.82;
+      this.bloom.strength = isNight ? 0.85 : 0.45;
+      this.bloom.threshold = isNight ? 0.78 : 0.95;
     }
   }
 
