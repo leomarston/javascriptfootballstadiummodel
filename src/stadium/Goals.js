@@ -1,23 +1,35 @@
 /**
- * Goals.js — regulation goals (7.32 × 2.44 m) with round posts, a crossbar and
- * a slanted, sagging net built from a procedural mesh texture.
+ * Goals.js — regulation goals (7.32 × 2.44 m).
+ *
+ * Round posts + crossbar, two back support stanchions, a back ground bar, and a
+ * draped net built from four sagging panels. The net uses a procedurally drawn
+ * knotted-mesh texture; each panel gets its own texture clone so the holes stay
+ * a consistent real-world size (~13 cm) regardless of the panel's dimensions.
+ *
+ * Geometry here is tiny (a few hundred triangles per goal), so the extra detail
+ * costs nothing next to the instanced stands/crowd.
  */
 
 import * as THREE from 'three';
 import { FIELD, GOAL } from '../config.js';
 
+const UP = new THREE.Vector3(0, 1, 0);
+const NET_HOLE = 0.13; // target mesh hole size in metres
+const NET_CELLS = 8; // cells per texture tile
+
 function createNetTexture() {
-  const size = 128;
+  const size = 256;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, size, size);
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-  ctx.lineWidth = 1.4;
-  const cells = 9;
-  const step = size / cells;
+
+  const step = size / NET_CELLS;
+  ctx.strokeStyle = 'rgba(248,251,252,0.95)';
+  ctx.lineWidth = 2.6;
+  ctx.lineCap = 'round';
   ctx.beginPath();
-  for (let i = 0; i <= cells; i++) {
+  for (let i = 0; i <= NET_CELLS; i++) {
     const p = i * step;
     ctx.moveTo(p, 0);
     ctx.lineTo(p, size);
@@ -25,8 +37,20 @@ function createNetTexture() {
     ctx.lineTo(size, p);
   }
   ctx.stroke();
+
+  // little knots where strands cross — reads as a real woven net up close
+  ctx.fillStyle = 'rgba(255,255,255,0.98)';
+  for (let i = 0; i <= NET_CELLS; i++) {
+    for (let j = 0; j <= NET_CELLS; j++) {
+      ctx.beginPath();
+      ctx.arc(i * step, j * step, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -37,8 +61,13 @@ export class Goals {
 
     this.netTex = createNetTexture();
     this.postMat = new THREE.MeshStandardMaterial({
-      color: 0xf4f6f8,
-      roughness: 0.32,
+      color: 0xf3f5f7,
+      roughness: 0.3,
+      metalness: 0.05
+    });
+    this.stanchionMat = new THREE.MeshStandardMaterial({
+      color: 0xeef1f4,
+      roughness: 0.4,
       metalness: 0.05
     });
 
@@ -46,114 +75,107 @@ export class Goals {
     this.group.add(this.buildGoal(1)); // away (opening faces −X)
   }
 
+  netMaterial(realW, realH) {
+    const t = this.netTex.clone();
+    t.needsUpdate = true;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(
+      Math.max(1, realW / (NET_HOLE * NET_CELLS)),
+      Math.max(1, realH / (NET_HOLE * NET_CELLS))
+    );
+    return new THREE.MeshStandardMaterial({
+      map: t,
+      transparent: true,
+      alphaTest: 0.14,
+      side: THREE.DoubleSide,
+      color: 0xf0f4f6,
+      roughness: 0.9,
+      metalness: 0,
+      depthWrite: true
+    });
+  }
+
+  bar(a, b, radius, mat) {
+    const va = new THREE.Vector3(...a);
+    const vb = new THREE.Vector3(...b);
+    const dir = new THREE.Vector3().subVectors(vb, va);
+    const len = dir.length();
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, len, 10),
+      mat
+    );
+    mesh.position.copy(va).add(vb).multiplyScalar(0.5);
+    mesh.quaternion.setFromUnitVectors(UP, dir.normalize());
+    mesh.castShadow = true;
+    return mesh;
+  }
+
   buildGoal(sign) {
     const g = new THREE.Group();
     const W = GOAL.WIDTH;
     const H = GOAL.HEIGHT;
     const r = GOAL.POST_RADIUS;
-    const halfW = W / 2;
-    const depthTop = GOAL.DEPTH_TOP;
-    const depthBottom = GOAL.DEPTH_BOTTOM;
+    const hw = W / 2;
+    const dTop = GOAL.DEPTH_TOP;
+    const dBot = GOAL.DEPTH_BOTTOM;
 
-    // Build facing +X, net trailing toward −X, then place/rotate per side.
+    // ---- frame (built facing +X, net trailing toward −X) -----------------
     const post = (z) => {
-      const m = new THREE.Mesh(
-        new THREE.CylinderGeometry(r, r, H, 20),
-        this.postMat
-      );
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, H, 20), this.postMat);
       m.position.set(0, H / 2, z);
       m.castShadow = true;
       g.add(m);
     };
-    post(-halfW);
-    post(halfW);
+    post(-hw);
+    post(hw);
 
-    const bar = new THREE.Mesh(
+    const crossbar = new THREE.Mesh(
       new THREE.CylinderGeometry(r, r, W + r * 2, 20),
       this.postMat
     );
-    bar.rotation.x = Math.PI / 2;
-    bar.position.set(0, H, 0);
-    bar.castShadow = true;
-    g.add(bar);
+    crossbar.rotation.x = Math.PI / 2;
+    crossbar.position.set(0, H, 0);
+    crossbar.castShadow = true;
+    g.add(crossbar);
 
+    // back support stanchions: a roof arm and an angled rear post on each side
+    for (const sz of [-hw, hw]) {
+      g.add(this.bar([0, H, sz], [-dTop, H, sz], r * 0.6, this.stanchionMat)); // roof arm
+      g.add(this.bar([-dTop, H, sz], [-dBot, 0, sz], r * 0.55, this.stanchionMat)); // rear post
+    }
     // back ground bar
-    const back = new THREE.Mesh(
-      new THREE.CylinderGeometry(r * 0.7, r * 0.7, W, 12),
-      this.postMat
+    g.add(this.bar([-dBot, r * 0.6, -hw], [-dBot, r * 0.6, hw], r * 0.6, this.stanchionMat));
+
+    // ---- net panels (own material → uniform hole size) -------------------
+    const slant = Math.hypot(dBot - dTop, H);
+    // roof: crossbar → back-top
+    g.add(
+      this.saggedPanel(
+        [0, H, -hw], [0, H, hw], [-dTop, H, hw], [-dTop, H, -hw],
+        this.netMaterial(W, dTop), 12, 5, 0.12
+      )
     );
-    back.rotation.x = Math.PI / 2;
-    back.position.set(-depthBottom, r * 0.7, 0);
-    g.add(back);
-
-    // ---- net -------------------------------------------------------------
-    const netMat = new THREE.MeshStandardMaterial({
-      map: this.netTex,
-      alphaMap: this.netTex,
-      transparent: true,
-      alphaTest: 0.15,
-      side: THREE.DoubleSide,
-      color: 0xf4f8fb,
-      roughness: 0.85,
-      metalness: 0,
-      depthWrite: true
-    });
-
-    // Back panel: slanted plane from crossbar (x=0,y=H) to back bar (x=-depthBottom, y=0)
-    const backPanel = this.saggedPanel(
-      [0, H, -halfW],
-      [0, H, halfW],
-      [-depthBottom, 0, halfW],
-      [-depthBottom, 0, -halfW],
-      netMat,
-      12,
-      8,
-      0.18
+    // back: back-top → ground
+    g.add(
+      this.saggedPanel(
+        [-dTop, H, -hw], [-dTop, H, hw], [-dBot, 0, hw], [-dBot, 0, -hw],
+        this.netMaterial(W, slant), 12, 6, 0.22
+      )
     );
-    g.add(backPanel);
-
-    // Top panel: from crossbar back to depthTop (gives the net a "roof")
-    const topPanel = this.saggedPanel(
-      [0, H, -halfW],
-      [0, H, halfW],
-      [-depthTop, H * 0.62, halfW],
-      [-depthTop, H * 0.62, -halfW],
-      netMat,
-      10,
-      4,
-      0.1
+    // sides (trapezoids)
+    g.add(
+      this.saggedPanel(
+        [0, 0, -hw], [0, H, -hw], [-dTop, H, -hw], [-dBot, 0, -hw],
+        this.netMaterial(dBot, H), 6, 8, 0.06
+      )
     );
-    g.add(topPanel);
-
-    // Two side triangles (left/right). Use quads degenerated to triangles.
-    const sidePanelL = this.saggedPanel(
-      [0, H, -halfW],
-      [-depthTop, H * 0.62, -halfW],
-      [-depthBottom, 0, -halfW],
-      [0, 0, -halfW],
-      netMat,
-      8,
-      8,
-      0.05
+    g.add(
+      this.saggedPanel(
+        [0, 0, hw], [0, H, hw], [-dTop, H, hw], [-dBot, 0, hw],
+        this.netMaterial(dBot, H), 6, 8, 0.06
+      )
     );
-    const sidePanelR = this.saggedPanel(
-      [0, 0, halfW],
-      [-depthBottom, 0, halfW],
-      [-depthTop, H * 0.62, halfW],
-      [0, H, halfW],
-      netMat,
-      8,
-      8,
-      0.05
-    );
-    g.add(sidePanelL, sidePanelR);
 
-    // texture density on the net
-    [backPanel, topPanel, sidePanelL, sidePanelR].forEach((p) => {
-      p.material.map.repeat.set(4, 3);
-    });
-
-    // place
     const x = sign * FIELD.HALF_LENGTH;
     g.position.x = x;
     if (sign > 0) g.rotation.y = Math.PI; // away goal faces −X
@@ -180,15 +202,14 @@ export class Goals {
       tmpAB.lerpVectors(a, b, u);
       tmpDC.lerpVectors(d, c, u);
       p.lerpVectors(tmpAB, tmpDC, v);
-      // sag toward −X and slightly down, strongest at panel centre
+      // gravity sag toward −X and slightly down, strongest at the panel centre
       const s = Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * sag;
       p.x -= s;
       p.y -= s * 0.4;
       pos.setXYZ(i, p.x, p.y, p.z);
     }
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, material.clone());
-    return mesh;
+    return new THREE.Mesh(geo, material);
   }
 
   get object() {

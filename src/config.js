@@ -43,8 +43,8 @@ export const GOAL = {
   WIDTH: 7.32,
   HEIGHT: 2.44,
   POST_RADIUS: 0.06,
-  DEPTH_TOP: 1.0, // how far the crossbar net arm reaches back
-  DEPTH_BOTTOM: 2.0 // how far the net foot reaches back along the ground
+  DEPTH_TOP: 1.6, // how far the net roof reaches back from the crossbar
+  DEPTH_BOTTOM: 2.4 // how far the net foot reaches back along the ground
 };
 
 export const BALL = {

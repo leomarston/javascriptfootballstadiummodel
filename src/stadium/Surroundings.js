@@ -120,12 +120,30 @@ export class Surroundings {
   }
 
   buildCornerFlags() {
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.6 });
+    const poleMat = new THREE.MeshStandardMaterial({
+      color: 0xf2f2f2,
+      roughness: 0.45,
+      metalness: 0.1
+    });
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.9 });
     const flagMat = new THREE.MeshStandardMaterial({
-      color: 0xffd23f,
-      roughness: 0.8,
+      color: 0xffce2b,
+      roughness: 0.7,
+      metalness: 0,
       side: THREE.DoubleSide
     });
+
+    // a single waving-flag geometry, reused for all four corners
+    const flagGeo = new THREE.PlaneGeometry(0.52, 0.32, 16, 3);
+    flagGeo.translate(0.26, 0, 0); // hinge at x=0 (the pole)
+    const fp = flagGeo.attributes.position;
+    for (let i = 0; i < fp.count; i++) {
+      const x = fp.getX(i);
+      const t = x / 0.52; // 0 at pole → 1 at the fly end
+      fp.setZ(i, Math.sin(x * 9.0 + 0.6) * 0.05 * t + Math.sin(x * 22.0) * 0.012 * t);
+    }
+    flagGeo.computeVertexNormals();
+
     const corners = [
       [-FIELD.HALF_LENGTH, -FIELD.HALF_WIDTH],
       [FIELD.HALF_LENGTH, -FIELD.HALF_WIDTH],
@@ -135,13 +153,32 @@ export class Surroundings {
     corners.forEach(([x, z]) => {
       const g = new THREE.Group();
       g.position.set(x, 0, z);
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8), poleMat);
+
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.022, 0.026, 1.5, 10),
+        poleMat
+      );
       pole.position.y = 0.75;
       pole.castShadow = true;
       g.add(pole);
-      const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.3), flagMat);
-      flag.position.set(Math.sign(-x) * 0.22, 1.32, 0);
+
+      // little finial on top + a weighted base
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), poleMat);
+      cap.position.y = 1.52;
+      g.add(cap);
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.07, 0.09, 0.08, 12),
+        baseMat
+      );
+      base.position.y = 0.04;
+      g.add(base);
+
+      const flag = new THREE.Mesh(flagGeo, flagMat);
+      flag.position.set(0, 1.34, 0);
+      flag.rotation.y = Math.atan2(-x, -z); // point in toward the pitch centre
+      flag.castShadow = true;
       g.add(flag);
+
       this.group.add(g);
     });
   }
